@@ -8,3 +8,4 @@ models/*.joblib
 
 .env
 .DS_Store
+.vscode/
