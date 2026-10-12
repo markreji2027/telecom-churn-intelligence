@@ -119,4 +119,7 @@ Python, pandas, NumPy, scikit-learn, XGBoost, SHAP, matplotlib, Jupyter.
 
 ## Author
 
-TODO: your name, LinkedIn and email.
+Mark Reji
+
+LinkedIn : https://www.linkedin.com/in/mark-reji-29488b246
+Email : markreji2027@gmail.com
