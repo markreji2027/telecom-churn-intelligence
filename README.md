@@ -1,461 +1,122 @@
-# Customer Churn Prediction & Analysis
+# Telecom Customer Churn Prediction
 
-An end-to-end machine learning project for analyzing and predicting customer churn using a telecom customer dataset containing **7,043 customer records**.
+Predicting which telecom customers are likely to leave, with an evaluation process designed to avoid the usual pitfalls: target leakage, tuning on the test set, and over-reading small differences between models.
 
-The project covers data cleaning, exploratory data analysis, preprocessing, machine learning, hyperparameter tuning, model evaluation, model interpretation, threshold analysis, and customer risk segmentation.
+**Highlights**
 
----
+- Compared 7 tuned classifiers with repeated stratified cross-validation, ranked on threshold-free metrics (PR-AUC, ROC-AUC).
+- Removed leakage-prone columns and tested a suspect feature (`CLTV`) with and without it before excluding it.
+- Chose the decision threshold on out-of-fold training predictions only, and touched the test set once.
+- Quantified uncertainty with bootstrap confidence intervals and a paired bootstrap between the top two models.
+- Final Random Forest: test **F1 0.625** (95% CI 0.587 to 0.661), precision 0.556, recall 0.714 at a threshold of 0.56.
+- Interpreted the model with logistic regression coefficients, Random Forest importance, permutation importance and SHAP.
 
-## 📌 Project Overview
+## Problem
 
-Customer churn is an important business problem for subscription-based companies because retaining existing customers can be more efficient than acquiring new ones.
+Retaining an existing customer is usually cheaper than acquiring a new one. The goal is to estimate each customer's churn risk so a retention team can prioritise outreach.
 
-This project aims to:
+## Data
 
-* Identify patterns associated with customer churn
-* Build machine learning models to predict churn
-* Compare multiple classification algorithms
-* Tune model hyperparameters using cross-validation
-* Evaluate models using multiple classification metrics
-* Interpret model predictions using feature importance and SHAP
-* Analyze different churn probability thresholds
-* Segment customers into low-, medium-, and high-risk groups
-* Translate analytical findings into potential business actions
+IBM Telco Customer Churn dataset (TODO: add link): 7,043 customers, about 26.5% of whom churned. The held-out test set has 1,409 customers (374 churners).
 
-> **Note:** The identified relationships represent predictive associations and should not be interpreted as causal relationships.
+Columns excluded to prevent leakage: `Churn Reason`, `Churn Score` and `Churn Value`. `CLTV` was investigated (see the notebook, sections 1.4 and 7.5) and excluded from all final models.
 
----
+## Approach
 
-## 📊 Dataset
+1. **Preprocessing:** a single scikit-learn `ColumnTransformer` (imputation, scaling, one-hot encoding) inside every pipeline, so nothing is fitted outside cross-validation.
+2. **Models:** Logistic Regression, Decision Tree, KNN, SVM, Random Forest, AdaBoost, XGBoost, each tuned with 5-fold grid search (F1 as the tuning metric).
+3. **Model comparison:** 5-fold stratified CV repeated 3 times on the training set, with identical preprocessing for every model.
+4. **Threshold selection:** F1-optimal threshold chosen from out-of-fold predictions on the training data, with a plateau check to see how sensitive the choice is.
+5. **Final evaluation:** one pass on the held-out test set, with bootstrap confidence intervals.
+6. **Interpretation and segmentation:** coefficients, feature importance, permutation importance, SHAP, and risk bands from predicted probabilities.
 
-The project uses the IBM Telco Customer Churn dataset.
+## Results
 
-* **Customers:** 7,043
-* **Target:** Churn Label
-* **Features:** Customer demographics, tenure, services, contract information, billing information, and customer lifetime value
-* **Target classes:** Churned (`Yes`) and Not Churned (`No`)
+### Model comparison
 
-The original dataset contains additional fields related to churn outcomes and geographic information. Variables that could introduce target leakage or were outside the scope of the predictive analysis were excluded during preprocessing.
+Models were selected on cross-validation (training data). Test results are reported for reference at each model's default cutoff.
 
----
+| Model | CV PR-AUC (mean ± sd) | CV ROC-AUC | Test PR-AUC | Test ROC-AUC |
+|---|---|---|---|---|
+| XGBoost | 0.691 ± 0.017 | 0.864 | 0.671 | 0.855 |
+| AdaBoost | 0.683 ± 0.016 | 0.861 | 0.672 | 0.853 |
+| Logistic Regression | 0.679 ± 0.018 | 0.859 | 0.642 | 0.848 |
+| Random Forest | 0.678 ± 0.018 | 0.861 | 0.661 | 0.849 |
+| SVM | 0.673 ± 0.016 | 0.852 | 0.629 | 0.838 |
+| KNN | 0.606 ± 0.021 | 0.835 | 0.604 | 0.827 |
+| Decision Tree | 0.600 ± 0.019 | 0.827 | 0.616 | 0.827 |
 
-## 🔍 Exploratory Data Analysis
+The top four models are statistically hard to tell apart: their PR-AUC differences are smaller than the fold-to-fold variation. KNN and the Decision Tree are clearly weaker. Accuracy is not informative here, since always predicting "no churn" scores about 0.735.
 
-The exploratory analysis examined:
+### Final model and threshold
 
-* Churn distribution
-* Customer tenure
-* Monthly charges
-* Total charges
-* Customer lifetime value (CLTV)
-* Contract type
-* Internet service
-* Payment method
-* Technical support
-* Online security
-* Dependents
-* Senior citizen status
-* Other customer service characteristics
+| Model | Threshold | Precision | Recall | F1 | ROC-AUC | PR-AUC |
+|---|---|---|---|---|---|---|
+| Random Forest | 0.56 | 0.556 | 0.714 | 0.625 | 0.849 | 0.661 |
+| XGBoost | 0.36 | 0.574 | 0.719 | 0.638 | 0.855 | 0.671 |
 
-Some notable patterns observed in the dataset include higher churn rates among:
+Thresholds were chosen on out-of-fold training predictions. For Random Forest, F1 stayed within 0.01 of its peak for thresholds from 0.42 to 0.62, so the exact value is not critical. The two thresholds differ because the models output probabilities on different scales.
 
-* Month-to-month contract customers
-* Customers with shorter tenure
-* Fiber-optic internet customers
-* Electronic-check payment customers
-* Customers without online security or technical support
+Paired bootstrap differences (Random Forest minus XGBoost) on the test set:
 
-These patterns describe associations within the dataset and do not establish causation.
+| Metric | Difference | 95% CI |
+|---|---|---|
+| PR-AUC | -0.011 | -0.025 to +0.003 |
+| F1 (each at its own threshold) | -0.013 | -0.032 to +0.006 |
+| ROC-AUC | -0.006 | -0.0115 to -0.0003 |
 
----
+PR-AUC and F1 differences are consistent with zero. The ROC-AUC gap is detectable but too small to matter in practice. The two models are treated as equivalent in predictive performance. Random Forest is used for interpretation and segmentation (TODO: add your reason).
 
-## ⚙️ Machine Learning Workflow
+### Risk segmentation
 
-The project follows this general workflow:
+Using Random Forest probabilities on the test set, customers are split into bands (<30%, 30 to 60%, 60% and above): **47.0% low risk, 22.0% medium, 31.0% high**.
 
-```text
-Raw Data
-   ↓
-Data Cleaning
-   ↓
-Exploratory Data Analysis
-   ↓
-Train-Test Split
-   ↓
-Feature Preparation
-   ↓
-Categorical Encoding + Numerical Scaling
-   ↓
-Baseline Models
-   ↓
-Hyperparameter Tuning
-   ↓
-Model Evaluation
-   ↓
-Model Interpretation
-   ↓
-Threshold Analysis
-   ↓
-Customer Risk Segmentation
-   ↓
-Business Insights
+### Key findings
+
+TODO: add 2 to 3 business findings from your SHAP and segmentation sections (for example, which contract types, tenure ranges or services are most associated with churn).
+
+## Limitations
+
+- Thresholds are optimised for F1, which is not necessarily the business-optimal choice. There is no cost model for retention offers.
+- Hyperparameters were tuned with `CLTV` included and were not re-tuned after it was removed.
+- Probabilities from the class-weighted Random Forest are not calibrated, so risk bands depend on its probability scale.
+- A single train/test split with 374 test churners limits precision; bootstrap intervals capture test-set sampling variation but not retraining variation.
+- Feature importance and SHAP values describe associations in the data, not causal effects.
+
+## Planned improvements
+
+- Cost-based threshold using assumed offer cost, customer value and offer success rate.
+- Lift/gain table and calibration plot.
+- Uplift modelling to separate "who will churn" from "who will respond to an offer".
+- Small Streamlit app to score a customer and show a SHAP explanation.
+
+## Repository structure
+
+TODO: adjust to match your repo.
+
 ```
-
-### Preprocessing
-
-Categorical variables were transformed using **One-Hot Encoding**.
-
-Numerical variables were standardized using **StandardScaler**.
-
-A stratified train-test split was used to preserve the original churn proportion in both datasets.
-
----
-
-## 🤖 Models
-
-Seven classification algorithms were developed and evaluated:
-
-1. Logistic Regression
-2. K-Nearest Neighbors (KNN)
-3. Support Vector Machine (SVM)
-4. Decision Tree
-5. Random Forest
-6. AdaBoost
-7. XGBoost
-
-Hyperparameters were optimized using **5-fold GridSearchCV**.
-
-The primary tuning metric was the **F1-score for the churn class**.
-
----
-
-## 📈 Model Performance
-
-The final models were evaluated using:
-
-* Accuracy
-* Precision
-* Recall
-* F1-score
-* ROC-AUC
-* PR-AUC
-* Confusion matrices
-
-### Test Set Performance
-
-| Model               |   Accuracy |  Precision |     Recall |         F1 |
-| ------------------- | ---------: | ---------: | ---------: | ---------: |
-| Logistic Regression |     74.38% |     51.15% | **77.27%** |     61.55% |
-| Decision Tree       |     78.21% |     60.37% |     52.14% |     55.95% |
-| KNN                 |     78.71% |     59.89% |     59.89% |     59.89% |
-| SVM                 |     79.99% |     64.29% |     55.35% |     59.48% |
-| Random Forest       |     76.37% |     53.88% |     76.20% | **63.12%** |
-| AdaBoost            |     80.70% |     65.45% |     57.75% |     61.36% |
-| XGBoost             | **81.05%** | **67.09%** |     56.15% |     61.14% |
-
-At the default 0.50 classification threshold:
-
-* **XGBoost** achieved the highest accuracy at **81.05%**
-* **XGBoost** achieved the highest ROC-AUC at **0.856**
-* **Random Forest** achieved the highest F1-score at **63.12%**
-* **Logistic Regression** achieved the highest churn recall at **77.27%**
-* **AdaBoost** achieved the highest PR-AUC at **0.674**
-
-These results demonstrate that model performance depends on the evaluation metric and business objective rather than a single universal metric.
-
----
-
-## 📉 ROC-AUC and PR-AUC
-
-| Model               |    ROC-AUC |     PR-AUC |
-| ------------------- | ---------: | ---------: |
-| Logistic Regression |     0.8485 |     0.6442 |
-| KNN                 |     0.8245 |     0.6016 |
-| SVM                 |     0.8372 |     0.6279 |
-| Decision Tree       |     0.8257 |     0.5894 |
-| Random Forest       |     0.8498 |     0.6560 |
-| AdaBoost            | **0.8527** | **0.6742** |
-| XGBoost             | **0.8561** |     0.6718 |
-
-ROC curves for all seven tuned models are included in the machine learning notebook.
-
----
-
-## 🔎 Model Interpretation
-
-Several approaches were used to understand model behavior.
-
-### Logistic Regression Coefficients
-
-The logistic regression coefficients were examined to understand the direction of association between encoded features and predicted churn.
-
-Important variables included:
-
-* Tenure
-* Contract type
-* Dependents
-* Internet service
-* Total charges
-* Payment method
-
-### Random Forest Feature Importance
-
-Tree-based feature importance highlighted variables such as:
-
-* Contract
-* Tenure
-* Total charges
-* Monthly charges
-* Online security
-* CLTV
-* Internet service
-
-### Permutation Feature Importance
-
-Permutation importance was calculated using the original feature columns to evaluate how much model performance changed when individual features were shuffled.
-
-The most influential features included:
-
-* Contract
-* Dependents
-* Internet service
-* Tenure
-* Total charges
-
-### SHAP Analysis
-
-SHAP was used with the XGBoost model to examine both global and individual predictions.
-
-The analysis showed that factors such as:
-
-* Month-to-month contracts
-* Shorter tenure
-* Higher monthly charges
-* Lack of dependents
-* Fiber-optic service
-* Lack of online security
-* Lack of technical support
-* Electronic-check payment
-
-could contribute toward higher predicted churn risk, while longer tenure and two-year contracts generally contributed in the opposite direction.
-
----
-
-## 🎯 Threshold Analysis
-
-The project also examined how changing the classification threshold affects the trade-off between precision and recall.
-
-For example, lowering the threshold generally increases the number of customers identified as potential churners, increasing recall but also increasing false positives.
-
-This demonstrates why a classification threshold should be selected according to the **business cost of false positives versus false negatives**, rather than automatically assuming that 0.50 is optimal.
-
----
-
-## 🚦 Customer Risk Segmentation
-
-The XGBoost model was used to calculate predicted churn probabilities for the test customers.
-
-Analytical risk bands were defined as:
-
-| Risk Category | Churn Probability |    Customers |
-| ------------- | ----------------: | -----------: |
-| Low           |            < 0.30 | 877 (62.24%) |
-| Medium        |     0.30 – < 0.60 | 336 (23.85%) |
-| High          |            ≥ 0.60 | 196 (13.91%) |
-
-These thresholds are analytical categories created for this project and are not universal business standards.
-
-### Risk Patterns
-
-Average predicted churn probability was higher among:
-
-* Month-to-month customers
-* Customers with shorter tenure
-* Fiber-optic customers
-* Electronic-check customers
-
-The predicted risk decreased substantially as customer tenure increased.
-
----
-
-## 💡 Business Insights
-
-The analysis suggests several areas that could be investigated further:
-
-### 1. Early-Tenure Customers
-
-Customers in their first year showed substantially higher predicted churn risk.
-
-Potential focus:
-
-* Customer onboarding
-* Early engagement
-* Support quality
-* Service adoption
-* Early retention programs
-
-### 2. Month-to-Month Contracts
-
-Month-to-month customers showed substantially higher predicted churn risk than customers with longer contracts.
-
-Potential areas for further investigation include:
-
-* Pricing
-* Contract flexibility
-* Retention offers
-* Customer expectations
-* Competitive alternatives
-
-### 3. Fiber-Optic Customers
-
-The fiber-optic segment showed higher predicted churn risk.
-
-Further investigation could examine:
-
-* Service quality
-* Pricing
-* Technical issues
-* Customer expectations
-* Competitive offerings
-
-### 4. Electronic-Check Customers
-
-Customers using electronic checks showed higher predicted churn risk.
-
-The company could investigate whether payment experience, payment friction, or other characteristics of this customer segment are associated with retention.
-
-These recommendations are based on predictive associations and should be validated using additional business data before implementation.
-
----
-
-## ⚖️ Handling Class Imbalance
-
-Approximately **26.5%** of customers in the dataset belonged to the churn class.
-
-The project addressed this by:
-
-* Using a stratified train-test split
-* Evaluating churn-class Precision, Recall and F1
-* Using churn-class F1 as the primary GridSearchCV scoring metric
-* Testing `class_weight="balanced"` during hyperparameter tuning for selected models
-
-SMOTE and undersampling were not used.
-
----
-
-## 📁 Project Structure
-
-```text
-customer-churn-prediction/
-│
-├── data/
-│   ├── raw/
-│   └── processed/
-│
-├── docs/
-│   └── Customer_Churn_Project.docx
-│
+.
+├── data/                      # dataset (or instructions to download it)
 ├── notebooks/
-│   ├── 01_data_understanding.ipynb
-│   ├── 02_exploratory_data_analysis.ipynb
-│   └── 03_ml_models.ipynb
-│
-├── reports/
-│   └── figures/
-│
-├── src/
-│
-├── models/
-│
-├── app/
-│
-├── .gitignore
-├── README.md
-└── requirements.txt
+│   └── 03_ml_models.ipynb     # modelling, evaluation, interpretation
+└── README.md
 ```
 
----
-
-## 🛠️ Technologies Used
-
-### Programming & Analysis
-
-* Python
-* Pandas
-* NumPy
-
-### Visualization
-
-* Matplotlib
-* Seaborn
-
-### Machine Learning
-
-* Scikit-learn
-* XGBoost
-* SHAP
-
-### Development
-
-* Jupyter Notebook
-* VS Code
-* Git
-* GitHub
-
----
-
-## ▶️ How to Run
-
-Clone the repository:
+## How to run
 
 ```bash
-git clone https://github.com/markreji2027/customer-churn-prediction.git
-cd customer-churn-prediction
+git clone <your-repo-url>
+cd <your-repo>
+pip install pandas numpy scikit-learn xgboost shap matplotlib jupyter
+jupyter notebook notebooks/03_ml_models.ipynb
 ```
 
-Create and activate a virtual environment:
+Use Kernel → Restart & Run All to reproduce the results. Random seeds are fixed in the notebook.
 
-```bash
-python -m venv venv
-```
+## Tech stack
 
-Windows:
+Python, pandas, NumPy, scikit-learn, XGBoost, SHAP, matplotlib, Jupyter.
 
-```bash
-venv\Scripts\activate
-```
+## Author
 
-Install the required packages:
-
-```bash
-pip install -r requirements.txt
-```
-
-Open the notebooks in Jupyter Notebook or VS Code and run them sequentially:
-
-```text
-01_data_understanding.ipynb
-        ↓
-02_exploratory_data_analysis.ipynb
-        ↓
-03_ml_models.ipynb
-```
-
----
-
-## ⚠️ Limitations
-
-* The analysis is based on a single telecom customer dataset.
-* The dataset may not represent future or external customer populations.
-* Several potentially important business variables are unavailable, including complaints, service outages, customer satisfaction, actual usage, competitor activity, and pricing changes.
-* Predictive associations do not establish causal relationships.
-* Probability thresholds should be validated using business costs and future validation data before deployment.
-* Predicted churn represents model-estimated risk rather than a guaranteed customer outcome.
-
----
-
-## 📌 Key Takeaway
-
-This project demonstrates an end-to-end approach to customer churn prediction, combining **statistical analysis, machine learning, model evaluation, explainability, and business-oriented risk segmentation**.
-
-Rather than relying on a single model or metric, the project evaluates multiple algorithms and examines how model performance changes across different evaluation criteria and classification thresholds.
+TODO: your name, LinkedIn and email.
