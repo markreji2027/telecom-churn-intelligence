@@ -65,21 +65,26 @@ Paired bootstrap differences (Random Forest minus XGBoost) on the test set:
 | F1 (each at its own threshold) | -0.013 | -0.032 to +0.006 |
 | ROC-AUC | -0.006 | -0.0115 to -0.0003 |
 
-PR-AUC and F1 differences are consistent with zero. The ROC-AUC gap is detectable but too small to matter in practice. The two models are treated as equivalent in predictive performance. Random Forest is used for interpretation and segmentation (TODO: add your reason).
+PR-AUC and F1 differences are consistent with zero. The ROC-AUC gap is detectable but too small to matter in practice. The two models are treated as equivalent in predictive performance. Random Forest is used for interpretation and segmentation.
 
 ### Risk segmentation
 
 Using Random Forest probabilities on the test set, customers are split into bands (<30%, 30 to 60%, 60% and above): **47.0% low risk, 22.0% medium, 31.0% high**.
 
-### Key findings
+### Key Findings
 
-TODO: add 2 to 3 business findings from your SHAP and segmentation sections (for example, which contract types, tenure ranges or services are most associated with churn).
+- **Overall churn:** Approximately 26.54% of customers in the dataset had churned.
+- **Contract type:** Month-to-month customers had a substantially higher churn rate (42.71%) than one-year (11.27%) and two-year contract customers (2.83%).
+- **Internet service:** Fiber optic customers had a higher churn rate (41.89%) than DSL customers (18.96%) and customers without internet service (7.41%).
+- **Payment method:** Customers using electronic checks had a churn rate of 45.29%.
+- **Model evaluation:** Seven machine learning classifiers were tuned using 5-fold cross-validation and evaluated with precision, recall, F1-score, ROC-AUC, PR-AUC, and confusion matrices.
+- **Threshold analysis:** Classification thresholds were examined to understand the trade-off between identifying more at-risk customers and generating false positives.
+- **Business implication:** Contract type, internet service, and payment method are useful areas to investigate when developing customer-retention strategies. These relationships are associations and do not establish causation.
+
 
 ## Limitations
 
 - Thresholds are optimised for F1, which is not necessarily the business-optimal choice. There is no cost model for retention offers.
-- Hyperparameters were tuned with `CLTV` included and were not re-tuned after it was removed.
-- Probabilities from the class-weighted Random Forest are not calibrated, so risk bands depend on its probability scale.
 - A single train/test split with 374 test churners limits precision; bootstrap intervals capture test-set sampling variation but not retraining variation.
 - Feature importance and SHAP values describe associations in the data, not causal effects.
 
@@ -89,18 +94,6 @@ TODO: add 2 to 3 business findings from your SHAP and segmentation sections (for
 - Lift/gain table and calibration plot.
 - Uplift modelling to separate "who will churn" from "who will respond to an offer".
 - Small Streamlit app to score a customer and show a SHAP explanation.
-
-## Repository structure
-
-TODO: adjust to match your repo.
-
-```
-.
-├── data/                      # dataset (or instructions to download it)
-├── notebooks/
-│   └── 03_ml_models.ipynb     # modelling, evaluation, interpretation
-└── README.md
-```
 
 ## How to run
 
